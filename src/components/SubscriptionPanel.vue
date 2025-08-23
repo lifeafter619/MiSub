@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import draggable from 'vuedraggable';
 import Card from './Card.vue';
 
@@ -30,6 +30,21 @@ const handleDeleteAll = () => {
   emit('deleteAll');
   showSubsMoreMenu.value = false;
 }
+
+// 添加点击外部关闭下拉菜单的功能
+const handleClickOutside = (event) => {
+  if (subsMoreMenuRef.value && !subsMoreMenuRef.value.contains(event.target)) {
+    showSubsMoreMenu.value = false;
+  }
+};
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
 </script>
 
 <template>
@@ -46,7 +61,7 @@ const handleDeleteAll = () => {
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600 dark:text-gray-300" viewBox="0 0 20 20" fill="currentColor"><path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" /></svg>
           </button>
           <Transition name="slide-fade-sm">
-            <div v-if="showSubsMoreMenu" class="absolute right-0 mt-2 w-36 bg-white dark:bg-gray-800 rounded-lg shadow-xl z-10 ring-1 ring-black ring-opacity-5">
+            <div v-if="showSubsMoreMenu" class="absolute right-0 mt-2 w-36 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg dark:shadow-2xl z-10 ring-1 ring-black/5">
               <button @click="handleToggleSort" class="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
                 {{ isSorting ? '完成排序' : '手动排序' }}
               </button>
@@ -78,7 +93,12 @@ const handleDeleteAll = () => {
         </template>
       </draggable>
       <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div v-for="subscription in paginatedSubscriptions" :key="subscription.id">
+          <div 
+              v-for="(subscription, index) in paginatedSubscriptions"
+              :key="subscription.id"
+              class="list-item-animation"
+              :style="{ '--delay-index': index }"
+          >   
               <Card 
                   :misub="subscription" 
                   @delete="handleDelete(subscription.id)" 
