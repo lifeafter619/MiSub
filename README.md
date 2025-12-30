@@ -1,4 +1,4 @@
-# MiSub.
+# MiSub
 
 <div align="center">
 
