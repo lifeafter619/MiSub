@@ -1,13 +1,23 @@
 // FILE: src/composables/useManualNodes.js
 import { ref, computed, watch } from 'vue';
-import { useToastStore } from '../stores/toast'; // 引入 Toast
+import { storeToRefs } from 'pinia';
+import { useDataStore } from '../stores/useDataStore';
+import { useToastStore } from '../stores/toast';
+import { extractNodeName } from '../lib/utils.js';
 
-export function useManualNodes(initialNodesRef, markDirty) {
-  const { showToast } = useToastStore(); // 获取 showToast 函数
-  const manualNodes = ref([]);
+export function useManualNodes(markDirty) {
+  const { showToast } = useToastStore();
+  const dataStore = useDataStore();
+  const { subscriptions: allSubscriptions } = storeToRefs(dataStore);
+
+  // Manual Nodes are items in subscriptions that are NOT http/https
+  // We filter from the shared store state
+  const manualNodes = computed(() => {
+    return (allSubscriptions.value || []).filter(item => !item.url || !/^https?:\/\//.test(item.url));
+  });
+
   const manualNodesCurrentPage = ref(1);
   const manualNodesPerPage = 24;
-
   const searchTerm = ref('');
 
   // 国家/地区代码到旗帜和中文名称的映射
@@ -68,82 +78,109 @@ export function useManualNodes(initialNodesRef, markDirty) {
     'nz': ['🇳🇿', '新西兰', '紐西蘭'],
   };
 
-  function initializeManualNodes(nodesData) {
-    manualNodes.value = (nodesData || []).map(node => ({
-      ...node,
-      id: node.id || crypto.randomUUID(),
-      enabled: node.enabled ?? true,
-    }));
-  }
+  const activeColorFilter = ref(null); // null = all, or color string
 
-  // [新增] 根据搜索词过滤节点
   const filteredManualNodes = computed(() => {
+    let nodes = manualNodes.value;
+
+    // Apply Color Filter
+    if (activeColorFilter.value) {
+      nodes = nodes.filter(n => n.colorTag === activeColorFilter.value);
+    }
+
     if (!searchTerm.value) {
-      return manualNodes.value;
+      return nodes;
     }
     const searchQuery = searchTerm.value.toLowerCase().trim();
-    
-    const filtered = manualNodes.value.filter(node => {
+    const alternativeTerms = countryCodeMap[searchQuery] || [];
+
+    return nodes.filter(node => {
       if (!node.name) return false;
-      
       const nodeName = node.name.toLowerCase();
-      
-      // 直接搜索匹配
-      if (nodeName.includes(searchQuery)) {
-        return true;
-      }
-      
-      // 获取可能的替代搜索词（国家代码映射）
-      const alternativeTerms = countryCodeMap[searchQuery] || [];
-      
-      // 检查节点名称是否包含任何替代词
+      if (nodeName.includes(searchQuery)) return true;
       for (const altTerm of alternativeTerms) {
-        if (nodeName.includes(altTerm.toLowerCase())) {
-          return true;
-        }
+        if (nodeName.includes(altTerm.toLowerCase())) return true;
       }
-      
       return false;
     });
-    
-    return filtered;
   });
-  
-  // 保持原始节点数据不变，用于显示总数等
-  const originalManualNodes = computed(() => manualNodes.value);
-  
+
   const manualNodesTotalPages = computed(() => Math.ceil(filteredManualNodes.value.length / manualNodesPerPage));
 
-  // [修改] 分页使用过滤后的节点
   const paginatedManualNodes = computed(() => {
     const start = (manualNodesCurrentPage.value - 1) * manualNodesPerPage;
     const end = start + manualNodesPerPage;
     return filteredManualNodes.value.slice(start, end);
   });
-  
+
   const enabledManualNodes = computed(() => manualNodes.value.filter(n => n.enabled));
 
   function changeManualNodesPage(page) {
     if (page < 1 || page > manualNodesTotalPages.value) return;
     manualNodesCurrentPage.value = page;
-  }  
+  }
+
+  function setColorFilter(color) {
+    activeColorFilter.value = color;
+    manualNodesCurrentPage.value = 1; // Reset to page 1
+  }
+
+  function batchUpdateColor(nodeIds, color) {
+    if (!nodeIds || nodeIds.length === 0) return;
+    const idsSet = new Set(nodeIds);
+    const updates = manualNodes.value
+      .filter(n => idsSet.has(n.id))
+      .map(n => {
+        // Only update if changed
+        if (n.colorTag === color) return null;
+        return { id: n.id, updates: { ...n, colorTag: color } };
+      })
+      .filter(u => u);
+
+    if (updates.length > 0) {
+      updates.forEach(({ id, updates }) => {
+        dataStore.updateSubscription(id, updates);
+      });
+      markDirty();
+      showToast(`已标记 ${updates.length} 个节点`, 'success');
+    }
+  }
+
+  function batchDeleteNodes(nodeIds) {
+    if (!nodeIds || nodeIds.length === 0) return;
+    // Confirmation moved to UI layer
+
+    nodeIds.forEach(id => {
+      dataStore.removeSubscription(id);
+    });
+
+    // Adjust pagination if needed
+    if (paginatedManualNodes.value.length === 0 && manualNodesCurrentPage.value > 1) {
+      manualNodesCurrentPage.value--;
+    }
+
+    markDirty();
+    showToast(`已删除 ${nodeIds.length} 个节点`, 'success');
+  }
 
   function addNode(node) {
-    manualNodes.value.unshift(node);
+    if (!node.name) {
+      node.name = extractNodeName(node.url);
+    }
+    // Add to shared store
+    dataStore.addSubscription(node);
     manualNodesCurrentPage.value = 1;
     markDirty();
   }
 
   function updateNode(updatedNode) {
-    const index = manualNodes.value.findIndex(n => n.id === updatedNode.id);
-    if (index !== -1) {
-      manualNodes.value[index] = updatedNode;
-      markDirty();
-    }
+    // Update in shared store
+    dataStore.updateSubscription(updatedNode.id, updatedNode);
+    markDirty();
   }
 
   function deleteNode(nodeId) {
-    manualNodes.value = manualNodes.value.filter(n => n.id !== nodeId);
+    dataStore.removeSubscription(nodeId);
     if (paginatedManualNodes.value.length === 0 && manualNodesCurrentPage.value > 1) {
       manualNodesCurrentPage.value--;
     }
@@ -151,113 +188,334 @@ export function useManualNodes(initialNodesRef, markDirty) {
   }
 
   function deleteAllNodes() {
-    manualNodes.value = [];
+    // Only remove proper manual nodes (not subscriptions)
+    const idsToRemove = manualNodes.value.map(n => n.id);
+    idsToRemove.forEach(id => dataStore.removeSubscription(id));
+
     manualNodesCurrentPage.value = 1;
     markDirty();
   }
 
   function addNodesFromBulk(nodes) {
-    manualNodes.value.unshift(...nodes);
+    // Reverse insert
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      dataStore.addSubscription(nodes[i]);
+    }
     markDirty();
   }
-  const getUniqueKey = (url) => {
+
+  const normalizeBase64 = (input) => {
+    let s = String(input || '').trim().replace(/\s+/g, '');
+    if (!s) return '';
+    if (s.includes('%')) {
+      try { s = decodeURIComponent(s); } catch { }
+    }
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4 !== 0) s += '=';
+    return s;
+  };
+
+  const safeBase64Decode = (input) => {
     try {
-      if (url.startsWith('vmess://')) {
-        const base64Part = url.substring('vmess://'.length);
-        
-        // 关键步骤：解码后，移除所有空白字符，解决格式不一致问题
-        const decodedString = atob(base64Part);
-        const cleanedString = decodedString.replace(/\s/g, ''); // 移除所有空格、换行等
-        
-        const nodeConfig = JSON.parse(cleanedString);
-        
+      const normalized = normalizeBase64(input);
+      const binary = atob(normalized);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch {
+      return '';
+    }
+  };
+
+  const buildSortedQuery = (params) => {
+    const items = Array.from(params.entries())
+      .sort(([a], [b]) => a.localeCompare(b));
+    return items.length ? `?${items.map(([k, v]) => `${k}=${v}`).join('&')}` : '';
+  };
+
+  const normalizeUrlForDedup = (url) => {
+    try {
+      const raw = String(url || '').trim();
+      if (!raw) return '';
+
+      if (raw.startsWith('vmess://')) {
+        const payload = raw.substring('vmess://'.length);
+        const decoded = safeBase64Decode(payload);
+        if (!decoded) return raw;
+        const nodeConfig = JSON.parse(decoded);
         delete nodeConfig.ps;
         delete nodeConfig.remark;
-        
-        // 重新序列化对象，并以此作为唯一键
-        // 通过排序键来确保即使字段顺序不同也能得到相同的结果
-        return 'vmess://' + JSON.stringify(Object.keys(nodeConfig).sort().reduce(
-          (obj, key) => { 
-            obj[key] = nodeConfig[key]; 
-            return obj;
-          }, 
-          {}
-        ));
+        delete nodeConfig.remarks;
+        delete nodeConfig.name;
+        const sorted = Object.keys(nodeConfig).sort().reduce((obj, key) => {
+          obj[key] = nodeConfig[key];
+          return obj;
+        }, {});
+        return `vmess://${JSON.stringify(sorted)}`;
       }
-      // 对于其他协议，简单地移除 # 后面的部分
-      const hashIndex = url.indexOf('#');
-      return hashIndex !== -1 ? url.substring(0, hashIndex) : url;
-    } catch (e) {
-      console.error('生成节点唯一键失败，将使用原始URL:', url, e);
-      // 如果解析失败，回退到使用原始URL，避免程序崩溃
+
+      if (raw.startsWith('ssr://')) {
+        const payload = raw.substring('ssr://'.length);
+        const decoded = safeBase64Decode(payload);
+        if (!decoded) return raw.split('#')[0];
+        const parts = decoded.split('/?');
+        const base = parts[0] || decoded;
+        const query = parts[1] || '';
+        const params = new URLSearchParams(query);
+        params.delete('remarks');
+        params.delete('remark');
+        params.delete('group');
+        params.delete('name');
+        const normalizedQuery = buildSortedQuery(params).replace('?', '');
+        return normalizedQuery ? `ssr://${base}/?${normalizedQuery}` : `ssr://${base}`;
+      }
+
+      const hashIndex = raw.indexOf('#');
+      const withoutHash = hashIndex !== -1 ? raw.substring(0, hashIndex) : raw;
+
+      let parsed;
+      try {
+        parsed = new URL(withoutHash);
+      } catch {
+        return withoutHash;
+      }
+
+      const params = new URLSearchParams(parsed.search);
+      params.delete('remarks');
+      params.delete('remark');
+      params.delete('name');
+      params.delete('ps');
+      params.delete('desc');
+
+      const protocol = parsed.protocol.toLowerCase();
+      const username = parsed.username ? decodeURIComponent(parsed.username) : '';
+      const password = parsed.password ? decodeURIComponent(parsed.password) : '';
+      const host = parsed.hostname;
+      const port = parsed.port || params.get('port') || '';
+      const path = parsed.pathname || '';
+      const query = buildSortedQuery(params);
+      const auth = username || password ? `${username}:${password}@` : '';
+
+      return `${protocol}//${auth}${host}${port ? `:${port}` : ''}${path}${query}`;
+    } catch {
       return url;
     }
   };
 
-  function deduplicateNodes() {
-    const originalCount = manualNodes.value.length;
-    const seenKeys = new Set();
-    const uniqueNodes = [];
+  const getNodePriorityScore = (node) => {
+    let score = 0;
+    if (node.enabled) score += 8;
+    if (node.name && node.name.trim()) score += 4;
+    if (node.group && node.group.trim()) score += 2;
+    if (node.colorTag) score += 1;
+    if (node.notes && node.notes.trim()) score += 1;
+    return score;
+  };
 
-    for (const node of manualNodes.value) {
-      // 使用新的、更智能的函数来生成唯一键
-      const uniqueKey = getUniqueKey(node.url);
-      
-      if (!seenKeys.has(uniqueKey)) {
-        seenKeys.add(uniqueKey);
-        uniqueNodes.push(node);
+  const buildDedupPlan = () => {
+    const nodes = manualNodes.value.map((node, index) => ({ ...node, __index: index }));
+    const bucket = new Map();
+
+    for (const node of nodes) {
+      const key = normalizeUrlForDedup(node.url);
+      if (!key) continue;
+      const list = bucket.get(key) || [];
+      list.push(node);
+      bucket.set(key, list);
+    }
+
+    const removeNodes = [];
+    const keepNodes = [];
+
+    for (const list of bucket.values()) {
+      if (list.length === 1) {
+        keepNodes.push(list[0]);
+        continue;
       }
+      const sorted = [...list].sort((a, b) => {
+        const scoreDiff = getNodePriorityScore(b) - getNodePriorityScore(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        const nameDiff = (b.name || '').length - (a.name || '').length;
+        if (nameDiff !== 0) return nameDiff;
+        return a.__index - b.__index;
+      });
+      keepNodes.push(sorted[0]);
+      removeNodes.push(...sorted.slice(1));
     }
-    
-    manualNodes.value = uniqueNodes;
-    const removedCount = originalCount - uniqueNodes.length;
 
-    if (removedCount > 0) {
-      showToast(`成功移除 ${removedCount} 个重复节点，请记得保存。`, 'success');
-      markDirty();
-    } else {
+    return {
+      totalNodes: nodes.length,
+      keepCount: keepNodes.length,
+      removeCount: removeNodes.length,
+      removeNodes
+    };
+  };
+
+  function applyDedupPlan(plan) {
+    if (!plan || !plan.removeNodes || plan.removeNodes.length === 0) {
       showToast('没有发现重复的节点。', 'info');
+      return;
     }
+
+    plan.removeNodes.forEach(node => dataStore.removeSubscription(node.id));
+    showToast(`成功移除 ${plan.removeNodes.length} 个重复节点，请记得保存。`, 'success');
+    markDirty();
+    manualNodesCurrentPage.value = 1;
+  }
+
+  function deduplicateNodes() {
+    const plan = buildDedupPlan();
+    applyDedupPlan(plan);
   }
 
   function autoSortNodes() {
-    const regionKeywords = { HK: [/香港/,/HK/,/Hong Kong/i], TW: [/台湾/,/TW/,/Taiwan/i], SG: [/新加坡/,/SG/,/狮城/,/Singapore/i], JP: [/日本/,/JP/,/Japan/i], US: [/美国/,/US/,/United States/i], KR: [/韩国/,/KR/,/Korea/i], GB: [/英国/,/GB/,/UK/,/United Kingdom/i], DE: [/德国/,/DE/,/Germany/i], FR: [/法国/,/FR/,/France/i], CA: [/加拿大/,/CA/,/Canada/i], AU: [/澳大利亚/,/AU/,/Australia/i], };
+    // Sort logic requires replacing the list.
+    // Since manual nodes are part of a larger list (subscriptions), we need to extract them, sort them, 
+    // and then potentially re-insert them or just update their order relative to themselves?
+    // The store's 'subscriptions' array is mixed.
+    // If we want to sort ONLY manual nodes but keep subscriptions in place... 
+    // It's complex because we don't track indices separately easily.
+    // Approach: Extract all Manual Nodes, Sort them, Extract all Subscriptions (keep order),
+    // Then Combine: [Subscriptions..., SortedManualNodes...]
+    // This effectively moves all manual nodes to the bottom. This is acceptable/expected behavior.
+
+    const subs = allSubscriptions.value.filter(s => s.url && /^https?:\/\//.test(s.url));
+    const nodes = [...manualNodes.value]; // Copy manual nodes
+
+    const regionKeywords = { HK: [/香港/, /HK/, /Hong Kong/i], TW: [/台湾/, /TW/, /Taiwan/i], SG: [/新加坡/, /SG/, /狮城/, /Singapore/i], JP: [/日本/, /JP/, /Japan/i], US: [/美国/, /US/, /United States/i], KR: [/韩国/, /KR/, /Korea/i], GB: [/英国/, /GB/, /UK/, /United Kingdom/i], DE: [/德国/, /DE/, /Germany/i], FR: [/法国/, /FR/, /France/i], CA: [/加拿大/, /CA/, /Canada/i], AU: [/澳大利亚/, /AU/, /Australia/i], };
     const regionOrder = ['HK', 'TW', 'SG', 'JP', 'US', 'KR', 'GB', 'DE', 'FR', 'CA', 'AU'];
     const getRegionCode = (name) => { for (const code in regionKeywords) { for (const keyword of regionKeywords[code]) { if (keyword.test(name)) return code; } } return 'ZZ'; };
-    
-    manualNodes.value.sort((a, b) => {
-        const regionA = getRegionCode(a.name);
-        const regionB = getRegionCode(b.name);
-        const indexA = regionOrder.indexOf(regionA);
-        const indexB = regionOrder.indexOf(regionB);
-        const effectiveIndexA = indexA === -1 ? Infinity : indexA;
-        const effectiveIndexB = indexB === -1 ? Infinity : indexB;
-        if (effectiveIndexA !== effectiveIndexB) return effectiveIndexA - effectiveIndexB;
-        return a.name.localeCompare(b.name, 'zh-CN');
+
+    nodes.sort((a, b) => {
+      const regionA = getRegionCode(a.name);
+      const regionB = getRegionCode(b.name);
+      // ... same sort logic ...
+      const indexA = regionOrder.indexOf(regionA);
+      const indexB = regionOrder.indexOf(regionB);
+      const effectiveIndexA = indexA === -1 ? Infinity : indexA;
+      const effectiveIndexB = indexB === -1 ? Infinity : indexB;
+
+      // Primary Sort: Group
+      const groupA = a.group || '';
+      const groupB = b.group || '';
+      if (groupA !== groupB) {
+        if (!groupA) return 1; // Empty group last
+        if (!groupB) return -1;
+        return groupA.localeCompare(groupB, 'zh-CN');
+      }
+
+      if (effectiveIndexA !== effectiveIndexB) return effectiveIndexA - effectiveIndexB;
+      return a.name.localeCompare(b.name, 'zh-CN');
     });
-    // [修正] 只標記為 dirty，不呼叫 handleSave
+
+    // Update store with new order: Manual Nodes first, then Subscriptions
+    dataStore.overwriteSubscriptions([...nodes, ...subs]);
+
+    manualNodesCurrentPage.value = 1;
     markDirty();
   }
 
-  // [新增] 监听搜索词变化，重置分页
   watch(searchTerm, (newValue, oldValue) => {
-    // 只在搜索词实际改变时重置分页
     if (newValue !== oldValue) {
       manualNodesCurrentPage.value = 1;
     }
   });
 
-  watch(initialNodesRef, (newInitialNodes) => {
-    initializeManualNodes(newInitialNodes);
-  }, { immediate: true, deep: true });
+  function reorderManualNodes(newOrder) {
+    // 1. Get all Subscriptions (to preserve them)
+    const currentSubscriptions = (allSubscriptions.value || []).filter(item => item.url && /^https?:\/\//.test(item.url));
+
+    // 2. Combine Existing Subscriptions + New Ordered Manual Nodes
+    // Logic: Manual Nodes at top, Subscriptions at bottom
+    const mergedList = [...newOrder, ...currentSubscriptions];
+
+    // 3. Update Store
+    dataStore.overwriteSubscriptions(mergedList);
+
+    // 4. Mark Dirty
+    markDirty();
+  }
+
+  const manualNodeGroups = computed(() => {
+    const groups = new Set();
+    manualNodes.value.forEach(node => {
+      if (node.group) {
+        groups.add(node.group);
+      }
+    });
+    return Array.from(groups).sort();
+  });
+
+  const groupedManualNodes = computed(() => {
+    const groups = {};
+    // Initialize groups
+    manualNodeGroups.value.forEach(group => {
+      groups[group] = [];
+    });
+    groups['默认'] = []; // Default group for ungrouped nodes
+
+    // Distribute nodes matches the current filter/search
+    // Use filteredManualNodes if we want to search within groups?
+    // Yes, usually we want to see search results grouped.
+
+    const nodesToDisplay = filteredManualNodes.value;
+
+    nodesToDisplay.forEach(node => {
+      const groupName = node.group || '默认';
+      if (!groups[groupName]) {
+        groups[groupName] = [];
+      }
+      groups[groupName].push(node);
+    });
+
+    // Remove empty groups if they are not the target of a move (UI logic usually)
+    // For display, we might want to hide empty groups if search is active?
+    // Let's keep it simple: return all groups that have nodes AFTER filtering, 
+    // PLUS all existing groups (so empty groups show up? No, usually not).
+
+    // Reformatted: Only return groups that have matching nodes
+    const result = {};
+    Object.keys(groups).forEach(key => {
+      if (groups[key].length > 0) {
+        result[key] = groups[key];
+      }
+    });
+
+    return result;
+  });
+
+  function renameGroup(oldName, newName) {
+    if (!oldName || !newName || oldName === newName) return;
+
+    const nodesInGroup = manualNodes.value.filter(n => n.group === oldName);
+    nodesInGroup.forEach(node => {
+      dataStore.updateSubscription(node.id, { ...node, group: newName });
+    });
+    markDirty();
+  }
+
+  function deleteGroup(groupName) {
+    if (!groupName) return;
+    // Ungroup nodes (move to default)
+    const nodesInGroup = manualNodes.value.filter(n => n.group === groupName);
+    nodesInGroup.forEach(node => {
+      // Creating a copy logic is safe here as updateSubscription handles it
+      const { group, ...rest } = node;
+      dataStore.updateSubscription(node.id, { ...rest, group: '' }); // Set to empty string or remove property
+    });
+    markDirty();
+  }
 
   return {
-    manualNodes: originalManualNodes, // 返回原始数据，不经过搜索过滤
+    manualNodes, // Returns computed filtered list
+    manualNodeGroups,
+    groupedManualNodes,
     manualNodesCurrentPage,
     manualNodesTotalPages,
-    paginatedManualNodes, // 这个已经经过搜索过滤和分页
+    paginatedManualNodes,
     enabledManualNodesCount: computed(() => enabledManualNodes.value.length),
-    searchTerm, // [新增] 导出搜索词
+    searchTerm,
+    activeColorFilter, // New
     changeManualNodesPage,
     addNode,
     updateNode,
@@ -265,6 +523,14 @@ export function useManualNodes(initialNodesRef, markDirty) {
     deleteAllNodes,
     addNodesFromBulk,
     autoSortNodes,
-    deduplicateNodes, // 导出新函数
+    deduplicateNodes,
+    buildDedupPlan,
+    applyDedupPlan,
+    reorderManualNodes, // Added
+    renameGroup,
+    deleteGroup,
+    setColorFilter, // New
+    batchUpdateColor, // New
+    batchDeleteNodes // New
   };
 }

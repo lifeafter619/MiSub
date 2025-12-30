@@ -3,16 +3,49 @@
 //
 export async function fetchInitialData() {
     try {
-        const response = await fetch('/api/data');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超时
+
+        const response = await fetch('/api/data', {
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
+            // 401 is expected when not logged in, don't log error
+            if (response.status === 401) {
+                throw new Error('UNAUTHORIZED');
+            }
             console.error("Session invalid or API error, status:", response.status);
-            return null;
+            throw new Error(`认证失败或API错误 (${response.status})`);
         }
+
         // 后端已经更新，会返回 { misubs, profiles, config }
-        return await response.json();
+        const data = await response.json();
+
+        // 检查新的认证状态响应 (200 OK with authenticated: false)
+        if (data && data.authenticated === false) {
+            throw new Error('UNAUTHORIZED');
+        }
+
+        return data;
     } catch (error) {
-        console.error("Failed to fetch initial data:", error);
-        return null;
+        // Don't log expected auth errors
+        if (error.message !== 'UNAUTHORIZED') {
+            console.error("Failed to fetch initial data:", error);
+        }
+
+        // 分析错误类型
+        if (error.message === 'UNAUTHORIZED') {
+            throw error;
+        } else if (error.name === 'AbortError') {
+            throw new Error('初始化数据加载超时，请刷新页面重试');
+        } else if (error.message.includes('fetch')) {
+            throw new Error('网络连接失败，请检查网络连接');
+        } else {
+            throw error; // 抛出原始错误
+        }
     }
 }
 
@@ -69,22 +102,54 @@ export async function saveMisubs(misubs, profiles) {
 
 export async function fetchNodeCount(subUrl) {
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+
         const res = await fetch('/api/node_count', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: subUrl })
+            body: JSON.stringify({ url: subUrl }),
+            signal: controller.signal
         });
-        const data = await res.json();
-        return data; // [修正] 直接返回整个对象 { count, userInfo }
+
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+            const errorData = await res.json().catch(() => ({}));
+            throw new Error(errorData.message || errorData.error || `HTTP ${res.status}`);
+        }
+
+        return await res.json();
     } catch (e) {
-        console.error('fetchNodeCount error:', e);
-        return { count: 0, userInfo: null };
+        console.error(`[fetchNodeCount] Failed for ${subUrl}:`, e);
+
+        // 分析错误类型并返回友好的错误信息
+        let errorType = 'unknown';
+        let errorMessage = '未知错误';
+
+        if (e.name === 'AbortError') {
+            errorType = 'timeout';
+            errorMessage = '请求超时';
+        } else if (e.message.includes('fetch') || e.message.includes('network')) {
+            errorType = 'network';
+            errorMessage = '网络连接失败';
+        } else if (e.message.includes('HTTP')) {
+            errorType = 'server';
+            errorMessage = e.message;
+        }
+
+        return {
+            count: 0,
+            userInfo: null,
+            error: errorMessage,
+            errorType: errorType
+        };
     }
 }
 
 export async function fetchSettings() {
     try {
-        const response = await fetch('/api/settings');
+        const response = await fetch(`/api/settings?t=${Date.now()}`);
         if (!response.ok) return {};
         return await response.json();
     } catch (error) {
@@ -164,7 +229,12 @@ export async function migrateToD1() {
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.message || errorData.error || `服务器错误 (${response.status})`;
-            return { success: false, message: errorMessage };
+            // Pass through details if available (e.g. for migration errors)
+            return {
+                success: false,
+                message: errorMessage,
+                details: errorData.details || errorData.errors
+            };
         }
 
         const result = await response.json();

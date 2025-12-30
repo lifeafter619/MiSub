@@ -1,29 +1,41 @@
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useDataStore } from '../stores/useDataStore';
 import { useToastStore } from '../stores/toast';
 
-export function useProfiles(initialProfiles, markDirty, config) {
+export function useProfiles(markDirty) {
   const { showToast } = useToastStore();
-  const profiles = ref([]);
+  const dataStore = useDataStore();
+  const { profiles, settings } = storeToRefs(dataStore);
+
+  /* Pagination setup */
   const isNewProfile = ref(false);
   const editingProfile = ref(null);
   const showProfileModal = ref(false);
   const showDeleteProfilesModal = ref(false);
 
-  const initializeProfiles = () => {
-    profiles.value = (initialProfiles.value || []).map(p => ({
-      ...p,
-      id: p.id || crypto.randomUUID(),
-      enabled: p.enabled ?? true,
-      subscriptions: p.subscriptions || [],
-      manualNodes: p.manualNodes || [],
-      customId: p.customId || ''
-    }));
-  };
+  const profilesCurrentPage = ref(1);
+  const profilesItemsPerPage = 6;
+
+  const profilesTotalPages = computed(() => Math.ceil(profiles.value.length / profilesItemsPerPage));
+  const paginatedProfiles = computed(() => {
+    const start = (profilesCurrentPage.value - 1) * profilesItemsPerPage;
+    const end = start + profilesItemsPerPage;
+    return profiles.value.slice(start, end);
+  });
+
+  function changeProfilesPage(page) {
+    if (page < 1 || page > profilesTotalPages.value) return;
+    profilesCurrentPage.value = page;
+  }
 
   const handleProfileToggle = (updatedProfile) => {
     const index = profiles.value.findIndex(p => p.id === updatedProfile.id);
     if (index !== -1) {
       profiles.value[index].enabled = updatedProfile.enabled;
+      if (updatedProfile.isPublic !== undefined) {
+        profiles.value[index].isPublic = updatedProfile.isPublic;
+      }
       markDirty();
     }
   };
@@ -35,7 +47,7 @@ export function useProfiles(initialProfiles, markDirty, config) {
   };
 
   const handleEditProfile = (profileId) => {
-    const profile = profiles.value.find(p => p.id === profileId);
+    const profile = profiles.value.find(p => p.id === profileId || p.customId === profileId);
     if (profile) {
       isNewProfile.value = false;
       editingProfile.value = JSON.parse(JSON.stringify(profile));
@@ -57,17 +69,19 @@ export function useProfiles(initialProfiles, markDirty, config) {
       }
     }
     if (isNewProfile.value) {
-      profiles.value.unshift({ ...profileData, id: crypto.randomUUID() });
+      dataStore.addProfile({ ...profileData, id: crypto.randomUUID() });
     } else {
       const index = profiles.value.findIndex(p => p.id === profileData.id);
-      if (index !== -1) profiles.value[index] = profileData;
+      if (index !== -1) {
+        profiles.value[index] = profileData;
+      }
     }
     markDirty();
     showProfileModal.value = false;
   };
 
   const handleDeleteProfile = (profileId) => {
-    profiles.value = profiles.value.filter(p => p.id !== profileId);
+    dataStore.removeProfile(profileId);
     markDirty();
   };
 
@@ -78,12 +92,12 @@ export function useProfiles(initialProfiles, markDirty, config) {
   };
 
   const copyProfileLink = (profileId) => {
-    const token = config.value?.profileToken;
+    const token = settings.value?.profileToken;
     if (!token || token === 'auto' || !token.trim()) {
       showToast('请在设置中配置一个固定的“订阅组分享Token”', 'error');
       return;
     }
-    const profile = profiles.value.find(p => p.id === profileId);
+    const profile = profiles.value.find(p => p.id === profileId || p.customId === profileId);
     if (!profile) return;
     const identifier = profile.customId || profile.id;
     const link = `${window.location.origin}/${token}/${identifier}`;
@@ -102,7 +116,7 @@ export function useProfiles(initialProfiles, markDirty, config) {
       p.manualNodes = p.manualNodes.filter(id => id !== nodeId);
     });
   };
-  
+
   const cleanupAllSubscriptions = () => {
     profiles.value.forEach(p => {
       p.subscriptions = [];
@@ -110,7 +124,7 @@ export function useProfiles(initialProfiles, markDirty, config) {
   };
 
   const cleanupAllNodes = () => {
-     profiles.value.forEach(p => {
+    profiles.value.forEach(p => {
       p.manualNodes = [];
     });
   };
@@ -121,7 +135,7 @@ export function useProfiles(initialProfiles, markDirty, config) {
     isNewProfile,
     showProfileModal,
     showDeleteProfilesModal,
-    initializeProfiles,
+    initializeProfiles: () => { }, // No-op now
     handleProfileToggle,
     handleAddProfile,
     handleEditProfile,
@@ -133,5 +147,11 @@ export function useProfiles(initialProfiles, markDirty, config) {
     cleanupNodes,
     cleanupAllSubscriptions,
     cleanupAllNodes,
+    cleanupAllNodes,
+    // Pagination exports
+    profilesCurrentPage,
+    profilesTotalPages,
+    paginatedProfiles,
+    changeProfilesPage
   };
 }
