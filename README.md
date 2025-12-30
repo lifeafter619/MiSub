@@ -1,4 +1,4 @@
-# MiSub
+# MiSub.
 
 <div align="center">
 
@@ -322,3 +322,4 @@ wrangler d1 execute misub --file=schema.sql --remote
 Made with ❤️ by AI
 
 </div>
+[MIT](https://www.google.com/search?q=./LICENSE\&authuser=2)
