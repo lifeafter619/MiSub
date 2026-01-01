@@ -40,9 +40,7 @@ const KV_KEY_PROFILES = 'misub_profiles_v1'; // Ensure this is defined if used
  */
 export async function handleApiRequest(request, env) {
     const url = new URL(request.url);
-    console.log(`[API Router] Incoming request: ${request.method} ${url.pathname}`);
     const path = url.pathname.replace(/^\/api/, '');
-    console.log(`[API Router] Parsed path: ${path}`);
 
     // [新增] 数据存储迁移接口 (KV -> D1)
     if (path === '/migrate_to_d1') {
@@ -115,6 +113,12 @@ export async function handleApiRequest(request, env) {
 
     if (path === '/public/preview') {
         return await handlePublicPreviewRequest(request, env);
+    }
+
+    // Telegram Push Bot Webhook (公开接口，内部验证)
+    if (path === '/telegram/webhook') {
+        const { handleTelegramWebhook } = await import('./handlers/telegram-webhook-handler.js');
+        return await handleTelegramWebhook(request, env);
     }
 
     // Public GET access for clients
@@ -283,7 +287,7 @@ async function handleExternalFetchRequest(request, env) {
 
         const contentType = response.headers.get('content-type') || '';
 
-        // ????????????????????????????????????Base64??????
+        // 读取响应体并生成 Base64 兜底内容
         const buffer = await response.arrayBuffer();
         if (buffer.byteLength > 10 * 1024 * 1024) { // 10MB limit
             return createErrorResponse('Response content too large (max 10MB limit)', 413);
@@ -294,7 +298,7 @@ async function handleExternalFetchRequest(request, env) {
 
         // console.log(`[External Fetch] Success: ${content.length} chars, type: ${contentType}`);
 
-        // ??????????????????????????????
+        // 返回包含原文与 Base64 的结果
         return new Response(JSON.stringify({
             content,
             contentBase64,
@@ -338,7 +342,7 @@ async function handleExternalFetchRequest(request, env) {
 }
 
 /**
- * ArrayBuffer -> Base64????????????
+ * ArrayBuffer -> Base64 ??
  */
 function encodeArrayBufferToBase64(buffer) {
     const bytes = new Uint8Array(buffer);
