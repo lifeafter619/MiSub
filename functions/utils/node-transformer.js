@@ -3,7 +3,7 @@
  * 支持：正则重命名、模板重命名、智能去重、排序
  */
 
-import { extractNodeRegion, getRegionEmoji } from '../modules/utils/geo-utils.js';
+import { extractNodeRegion, getRegionEmoji, REGION_KEYWORDS, REGION_EMOJI } from '../modules/utils/geo-utils.js';
 
 // ============ 默认配置 ============
 
@@ -12,6 +12,9 @@ const DEFAULT_SORT_KEYS = [
     { key: 'protocol', order: 'asc', customOrder: ['vless', 'trojan', 'vmess', 'hysteria2', 'ss', 'ssr'] },
     { key: 'name', order: 'asc' }
 ];
+
+const REGION_CODE_TO_ZH = buildRegionCodeToZhMap();
+const REGION_ZH_TO_CODE = buildZhToCodeMap();
 
 // ============ 工具函数 ============
 
@@ -332,9 +335,85 @@ function choosePreferred(existing, candidate, protocolOrder) {
     return rank(candidate.protocol) < rank(existing.protocol) ? candidate : existing;
 }
 
-function renderTemplate(template, vars) {
-    return String(template || '').replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => {
-        const v = vars[key];
+function buildRegionCodeToZhMap() {
+    const map = {};
+    for (const [zhName, keywords] of Object.entries(REGION_KEYWORDS || {})) {
+        if (!Array.isArray(keywords)) continue;
+        for (const keyword of keywords) {
+            const code = String(keyword || '').trim();
+            if (/^[A-Za-z]{2,3}$/.test(code)) {
+                const upper = code.toUpperCase();
+                if (!map[upper]) map[upper] = zhName;
+            }
+        }
+    }
+    if (map['GB'] && !map['UK']) map['UK'] = map['GB'];
+    return map;
+}
+
+/**
+ * 构建中文地区名到地区代码的映射
+ * 例如: { '美国': 'US', '香港': 'HK' }
+ */
+function buildZhToCodeMap() {
+    const map = {};
+    for (const [zhName, keywords] of Object.entries(REGION_KEYWORDS || {})) {
+        if (!Array.isArray(keywords)) continue;
+        // 取第一个符合地区代码格式的关键词作为该地区的代码
+        for (const keyword of keywords) {
+            const code = String(keyword || '').trim();
+            if (/^[A-Za-z]{2,3}$/.test(code)) {
+                map[zhName] = code.toUpperCase();
+                break;
+            }
+        }
+    }
+    return map;
+}
+
+/**
+ * 将中文地区名转换为地区代码
+ * @param {string} zhRegion - 中文地区名 (如 '美国')
+ * @returns {string} 地区代码 (如 'US')，如未找到则返回原值
+ */
+function toRegionCode(zhRegion) {
+    const region = String(zhRegion || '').trim();
+    if (!region) return '';
+    // 如果已经是地区代码格式，直接返回大写
+    if (/^[A-Za-z]{2,3}$/.test(region)) return region.toUpperCase();
+    // 从映射表中查找
+    return REGION_ZH_TO_CODE[region] || region;
+}
+
+function toRegionZh(value) {
+    const region = String(value || '').trim();
+    if (!region) return '';
+    if (/[\u4e00-\u9fa5]/.test(region)) return region;
+    const upper = region.toUpperCase();
+    return REGION_CODE_TO_ZH[upper] || region;
+}
+
+function applyModifier(key, value, modifier, record) {
+    const val = value == null ? '' : String(value);
+    switch (modifier) {
+        case 'UPPER': return val.toUpperCase();
+        case 'lower': return val.toLowerCase();
+        case 'Title': return val.charAt(0).toUpperCase() + val.slice(1);
+        case 'zh':
+            // 对于 region:zh，直接返回 regionZh（中文地区名）
+            if (key === 'region' && record && record.regionZh) {
+                return record.regionZh;
+            }
+            return key === 'region' ? toRegionZh(val) : val;
+        default: return val;
+    }
+}
+
+function renderTemplate(template, vars, record) {
+    return String(template || '').replace(/\{([a-zA-Z0-9_]+)(?::([a-zA-Z]+))?\}/g, (_, key, modifier) => {
+        if (!Object.prototype.hasOwnProperty.call(vars, key)) return '';
+        let v = vars[key];
+        if (modifier) v = applyModifier(key, v, modifier, record);
         return v == null ? '' : String(v);
     }).trim();
 }
@@ -478,11 +557,13 @@ export function applyNodeTransformPipeline(nodeUrls, transformConfig = {}) {
     }
 
     // 去重后再计算 region/emoji：修复"正则改名后 region 未更新"问题，并减少大列表开销
+    // 注意：extractNodeRegion 返回中文地区名，我们需要同时保存中文名和代码
     if (needRegionEmoji) {
         records = records.map(r => {
-            const region = extractNodeRegion(r.name);
-            const emoji = cfg.enableEmoji ? getRegionEmoji(region) : '';
-            return { ...r, region, emoji };
+            const regionZh = extractNodeRegion(r.name);           // 中文地区名，如 '美国'
+            const regionCode = toRegionCode(regionZh);             // 地区代码，如 'US'
+            const emoji = cfg.enableEmoji ? getRegionEmoji(regionZh) : '';  // emoji 需要用中文名查找
+            return { ...r, region: regionCode, regionZh, emoji };
         });
     }
 
@@ -535,7 +616,7 @@ export function applyNodeTransformPipeline(nodeUrls, transformConfig = {}) {
                     server: r.server,
                     port: r.port
                 };
-                const newName = renderTemplate(cfg.rename.template.template, vars);
+                const newName = renderTemplate(cfg.rename.template.template, vars, r);
                 r.name = newName;
                 r.url = setNodeName(r.url, r.protocol, newName);
             }
