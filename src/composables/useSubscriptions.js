@@ -5,6 +5,9 @@ import { useDataStore } from '../stores/useDataStore';
 import { useToastStore } from '../stores/toast.js';
 import { fetchNodeCount, batchUpdateNodes } from '../lib/api.js';
 import { handleError } from '../utils/errorHandler.js';
+import { TIMING } from '../constants/timing.js';
+
+const isDev = import.meta.env.DEV;
 
 export function useSubscriptions(markDirty) {
   const { showToast } = useToastStore();
@@ -72,20 +75,20 @@ export function useSubscriptions(markDirty) {
           showToast(`${subToUpdate.name || '订阅'} 更新超时,已自动重置`, 'warning');
         }
       }
-    }, 30000); // 30秒超时保护
+    }, TIMING.REQUEST_TIMEOUT_MS);
 
     try {
-      const data = await fetchNodeCount(subToUpdate.url);
+      const result = await fetchNodeCount(subToUpdate.url);
 
       // 清除超时保护
       clearTimeout(timeoutId);
 
-      // 更明确的错误检测:检查 error 字段
-      if (data.error || data.errorType) {
+      // 检查是否成功
+      if (!result.success) {
         let userMessage = `${subToUpdate.name || '订阅'} 更新失败`;
 
         // 根据 errorType 提供更友好的错误提示
-        switch (data.errorType) {
+        switch (result.errorType) {
           case 'timeout':
             userMessage = `${subToUpdate.name || '订阅'} 更新超时,请稍后重试`;
             break;
@@ -95,22 +98,17 @@ export function useSubscriptions(markDirty) {
           case 'server':
             userMessage = `${subToUpdate.name || '订阅'} 服务器错误`;
             break;
-          case 'fetch_failed':
-            userMessage = `${subToUpdate.name || '订阅'} 订阅获取失败,请检查链接是否有效`;
-            break;
-          case 'processing_error':
-            userMessage = `${subToUpdate.name || '订阅'} 处理失败`;
-            break;
           default:
-            userMessage = `${subToUpdate.name || '订阅'} 更新失败: ${data.error}`;
+            userMessage = `${subToUpdate.name || '订阅'} 更新失败: ${result.error}`;
         }
 
         if (!isInitialLoad) showToast(userMessage, 'error');
-        console.error(`[handleUpdateNodeCount] Failed for ${subToUpdate.name}:`, data.error);
+        console.error(`[handleUpdateNodeCount] Failed for ${subToUpdate.name}:`, result.error);
 
         // 失败时不调用 markDirty(),避免误导用户
       } else {
         // 成功获取数据
+        const data = result.data;
         // Direct mutation works because subToUpdate is a reactive object from the store
         subToUpdate.nodeCount = data.count || 0;
         subToUpdate.userInfo = data.userInfo || null;
@@ -167,6 +165,8 @@ export function useSubscriptions(markDirty) {
 
   function deleteSubscription(subId) {
     dataStore.removeSubscription(subId);
+    // 清理组合订阅中对该订阅源的引用
+    dataStore.removeSubscriptionFromProfiles(subId);
     if (paginatedSubscriptions.value.length === 0 && subsCurrentPage.value > 1) {
       subsCurrentPage.value--;
     }
@@ -177,10 +177,20 @@ export function useSubscriptions(markDirty) {
     // Only remove the subscriptions visible in this composable (i.e. HTTP subs)
     // Avoid removing manual nodes which are also in dataStore but filtered out here
     const idsToRemove = subscriptions.value.map(s => s.id);
+
+    // 如果没有订阅，提示并返回
+    if (idsToRemove.length === 0) {
+      showToast('没有可删除的订阅', 'info');
+      return;
+    }
+
     idsToRemove.forEach(id => dataStore.removeSubscription(id));
+    // 清理组合订阅中对这些订阅源的引用
+    dataStore.removeSubscriptionFromProfiles(idsToRemove);
 
     subsCurrentPage.value = 1;
     markDirty();
+    showToast(`已清空 ${idsToRemove.length} 个订阅`, 'success');
   }
 
   async function addSubscriptionsFromBulk(subs) {
@@ -243,12 +253,14 @@ export function useSubscriptions(markDirty) {
 
         for (const sub of subsToUpdate) {
           try {
-            const data = await fetchNodeCount(sub.url);
-            if (!data?.error && data.userInfo) {
-              sub.userInfo = data.userInfo;
+            const result = await fetchNodeCount(sub.url);
+            if (result.success && result.data.userInfo) {
+              sub.userInfo = result.data.userInfo;
             }
-          } catch {
-            // ignore
+          } catch (error) {
+            if (isDev) {
+              console.debug('[Subscriptions] Failed to fetch node info during batch update:', error);
+            }
           }
         }
 
@@ -273,7 +285,7 @@ export function useSubscriptions(markDirty) {
   }
 
   // ========== 定时自动更新功能 ==========
-  const AUTO_UPDATE_INTERVAL_MS = 30 * 60 * 1000; // 30分钟
+  const AUTO_UPDATE_INTERVAL_MS = TIMING.AUTO_UPDATE_INTERVAL_MS;
   let autoUpdateTimerId = null;
 
   async function autoUpdateAllSubscriptions() {

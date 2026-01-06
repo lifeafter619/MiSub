@@ -5,7 +5,7 @@
 
 import { StorageFactory } from '../../storage-adapter.js';
 import { createJsonResponse, createErrorResponse } from '../utils.js';
-import { handleSubscriptionNodesRequest } from './subscription-handler.js';
+import { handleSubscriptionNodesRequest } from '../subscription-handler.js';
 import { parseNodeList, calculateProtocolStats, calculateRegionStats } from '../utils/node-parser.js';
 
 /**
@@ -356,7 +356,7 @@ export async function handlePreviewContentRequest(request, env) {
         } else if (decodedContent.includes('outbounds') && decodedContent.includes('inbounds')) {
             contentInfo.contentType = 'singbox-config';
         } else {
-            const nodeMatches = decodedContent.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//gm);
+            const nodeMatches = decodedContent.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5|socks):\/\//gm);
             if (nodeMatches) {
                 contentInfo.contentType = 'node-list';
                 contentInfo.nodeCount = nodeMatches.length;

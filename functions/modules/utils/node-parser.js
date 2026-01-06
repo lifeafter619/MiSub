@@ -13,7 +13,7 @@ import { validateSS2022Node, fixSS2022Node } from './ss2022-validator.js';
 /**
  * 支持的节点协议正则表达式
  */
-export const NODE_PROTOCOL_REGEX = /^(ss|ssr|vmess|vless|trojan|hysteria2|hy2|tuic|snell|naive\+https?|naive\+quic|socks5|http|anytls):\/\//i;
+export const NODE_PROTOCOL_REGEX = /^(ss|ssr|vmess|vless|trojan|hysteria2|hy2|hysteria|tuic|snell|naive\+https?|naive\+quic|socks5|socks|http|anytls):\/\//i;
 
 /**
  * Base64编码辅助函数
@@ -176,6 +176,23 @@ function convertClashProxyToUrl(proxy) {
             return `${scheme}://${auth}${server}:${port}${query}#${encodeURIComponent(name)}`;
         }
 
+        // [新增] 支持 anytls 类型代理
+        if (type === 'anytls') {
+            const password = proxy.password || '';
+            const params = [];
+
+            if (proxy.sni) params.push(`sni=${encodeURIComponent(proxy.sni)}`);
+            if (proxy.alpn) {
+                const alpn = Array.isArray(proxy.alpn) ? proxy.alpn.join(',') : proxy.alpn;
+                params.push(`alpn=${encodeURIComponent(alpn)}`);
+            }
+            if (proxy['skip-cert-verify']) params.push('insecure=1');
+            if (proxy.padding !== undefined) params.push(`padding=${proxy.padding}`);
+
+            const query = params.length > 0 ? `?${params.join('&')}` : '';
+            return `anytls://${encodeURIComponent(password)}@${server}:${port}${query}#${encodeURIComponent(name)}`;
+        }
+
         return null;
     } catch (e) {
         console.error('Error converting proxy:', e);
@@ -210,8 +227,7 @@ export function extractValidNodes(text) {
                 if (nodes.length > 0) return nodes;
             }
         } catch (e) {
-            // YAML 解析失败，继续尝试其他格式
-            // console.warn('YAML parse failed, trying other formats');
+            console.debug('[NodeParser] YAML parse failed, trying other formats:', e);
         }
     }
 
@@ -235,7 +251,7 @@ export function extractValidNodes(text) {
             processedText = new TextDecoder('utf-8').decode(bytes);
         }
     } catch (e) {
-        // Base64 解码失败则继续按照纯文本处理
+        console.debug('[NodeParser] Base64 decode failed, using raw text:', e);
     }
 
     // 3. 正则提取链接 (ss://, vmess:// 等)
@@ -308,7 +324,9 @@ export function parseNodeList(content) {
                         try {
                             const decodedUser = atob(userInfo);
                             if (decodedUser.includes(':')) method = decodedUser.split(':')[0];
-                        } catch (e) { }
+                        } catch (e) {
+                            console.debug('[NodeParser] Failed to decode SS user info:', e);
+                        }
                     }
                 } else {
                     // 处理 Base64 格式 (SIP002) ss://base64(method:password@server:port)
@@ -328,19 +346,22 @@ export function parseNodeList(content) {
                             try {
                                 const decodedUser = atob(userInfoBase64);
                                 if (decodedUser.includes(':')) method = decodedUser.split(':')[0];
-                            } catch (e2) { }
+                            } catch (e2) {
+                                console.debug('[NodeParser] Failed to decode SS user info fallback:', e2);
+                            }
+                        } else {
+                            console.debug('[NodeParser] Failed to decode SS payload:', e);
                         }
                     }
                 }
             } catch (e) {
-                // 解析出错
+                console.debug('[NodeParser] Failed to extract SS cipher:', e);
             }
 
             // 2.2 验证加密算法
             if (method) {
                 const normalizedMethod = method.toLowerCase();
                 if (!SUPPORTED_SS_CIPHERS.includes(normalizedMethod)) {
-                    // console.log(`[Node Filter] Dropping SS node with legacy cipher: ${normalizedMethod}`);
                     return null;
                 }
             }
@@ -392,46 +413,41 @@ export function parseNodeList(content) {
             // 2. Base64: vless://base64(uuid@host:port)
             let id = null;
 
-            // 尝试 Base64 解码优先 (因为 auto:uuid 经常出现在这里)
+            // 尝试标准格式 vless://uuid@host:port 优先
             const matchStandard = fixedUrl.match(/^vless:\/\/([0-9a-fA-F-]{36})@/);
 
             if (matchStandard) {
                 id = matchStandard[1];
             } else {
-                // 尝试 Base64 格式
-                try {
-                    // 去掉 vless://
-                    let body = fixedUrl.substring(8);
-
-                    // 去掉参数和 fragment
-                    const qMarkIndex = body.indexOf('?');
-                    if (qMarkIndex !== -1) body = body.substring(0, qMarkIndex);
-                    const hashIndex = body.indexOf('#');
-                    if (hashIndex !== -1) body = body.substring(0, hashIndex);
-
-                    // 简单的 Base64 长度检查 (避免无效解码)
-                    if (body.length > 20) {
-                        const decoded = atob(body); // uuid@host:port
-                        const atIndex = decoded.indexOf('@');
-                        // 必须包含 @ 且 @ 前面是 ID
-                        if (atIndex !== -1) {
-                            id = decoded.substring(0, atIndex);
-                        } else {
-                            // 如果没有 @，可能直接就是 uuid (少见，但防止 auto:uuid)
-                            // 检查是否包含 auto:
+                // 尝试从 @ 前面提取 (可能是非标准 uuid 或 Base64)
+                const matchAnyUser = fixedUrl.match(/^vless:\/\/([^@]+)@/);
+                if (matchAnyUser) {
+                    const userPart = matchAnyUser[1];
+                    // 检查是否像是 Base64 编码 (长度较长且只包含 Base64 字符)
+                    const base64Regex = /^[A-Za-z0-9+/=_-]+$/;
+                    if (userPart.length > 40 && base64Regex.test(userPart)) {
+                        // 可能是 Base64 编码的内容，尝试解码
+                        try {
+                            let safeBody = userPart.replace(/-/g, '+').replace(/_/g, '/');
+                            while (safeBody.length % 4) {
+                                safeBody += '=';
+                            }
+                            const decoded = atob(safeBody);
+                            // 解码后检查是否包含 auto: 等无效前缀
                             if (decoded.startsWith('auto:')) {
                                 id = decoded; // 这样后面 validation 会失败
+                            } else {
+                                // 解码成功但不是 auto: 开头，可能是正常 UUID
+                                id = decoded;
                             }
+                        } catch (e) {
+                            // Base64 解码失败，使用原始 userPart 作为 ID
+                            id = userPart;
                         }
+                    } else {
+                        // 不像 Base64，直接使用 userPart 作为 ID
+                        id = userPart;
                     }
-                } catch (e) {
-                    // 解码失败，回退到尝试直接提取
-                }
-
-                // 如果 Base64 解析失败，尝试从 URL 直接提取 (针对非标准 uuid@)
-                if (!id) {
-                    const matchAnyUser = fixedUrl.match(/^vless:\/\/([^@]+)@/);
-                    if (matchAnyUser) id = matchAnyUser[1];
                 }
             }
 
@@ -441,7 +457,6 @@ export function parseNodeList(content) {
                 // 包含 auto: 的 ID 会导致 isValidUUID 返回 false
                 if (!isValidUUID(id)) {
                     isValidNode = false;
-                    // console.log(`[Node Filter] Dropping invalid VLESS node (Invalid UUID): ${id}`);
                 }
             }
         } else if (nodeInfo.protocol === 'vmess') {
@@ -459,10 +474,9 @@ export function parseNodeList(content) {
                     const config = JSON.parse(jsonStr);
                     if (config && config.id && !isValidUUID(config.id)) {
                         isValidNode = false;
-                        // console.log(`[Node Filter] Dropping invalid VMess node (Invalid UUID): ${config.id}`);
                     }
                 } catch (e) {
-                    // 解码失败忽略，交给后续处理或保留
+                    console.debug('[NodeParser] VMess decode failed, keeping original node:', e);
                 }
             }
         }

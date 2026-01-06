@@ -59,7 +59,7 @@ export const REGION_KEYWORDS = {
  */
 export const REGION_EMOJI = {
     '香港': '🇭🇰',
-    '台湾': '🇹🇼',
+    '台湾': '🇨🇳',
     '新加坡': '🇸🇬',
     '日本': '🇯🇵',
     '美国': '🇺🇸',
@@ -100,8 +100,62 @@ export const REGION_EMOJI = {
     '丹麦': '🇩🇰',
     '芬兰': '🇫🇮',
     '奥地利': '🇦🇹',
-    '其他': '🏁'
+    '其他': '🌍'
 };
+
+function normalizeBase64(input) {
+    let s = String(input || '').trim().replace(/\s+/g, '');
+    if (!s) return '';
+    if (s.includes('%')) {
+        try {
+            s = decodeURIComponent(s);
+        } catch {
+            // keep raw when decode fails
+        }
+    }
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return s;
+}
+
+function isLikelyBase64(input) {
+    const s = String(input || '').trim();
+    if (!s) return false;
+    if (!/^[A-Za-z0-9+/=_-]+$/.test(s)) return false;
+    return s.length >= 6;
+}
+
+function tryDecodeBase64(input) {
+    if (!isLikelyBase64(input)) return null;
+    try {
+        return atob(normalizeBase64(input));
+    } catch {
+        return null;
+    }
+}
+
+function parseHostPort(value) {
+    let segment = String(value || '');
+    if (!segment) return { server: '', port: '' };
+    const cut = segment.search(/[/?#]/);
+    if (cut !== -1) segment = segment.slice(0, cut);
+
+    if (segment.startsWith('[')) {
+        const closeBracket = segment.indexOf(']');
+        if (closeBracket !== -1) {
+            const server = segment.slice(1, closeBracket);
+            const after = segment.slice(closeBracket + 1);
+            const port = after.startsWith(':') ? after.slice(1).split('/')[0] : '';
+            return { server, port };
+        }
+    }
+
+    const parts = segment.split(':');
+    if (parts.length >= 2) {
+        return { server: parts[0], port: parts[1].split('/')[0] };
+    }
+    return { server: segment, port: '' };
+}
 
 /**
  * 从节点名称中识别地区
@@ -118,8 +172,32 @@ export function extractNodeRegion(nodeName) {
     // 遍历所有地区关键词
     for (const [regionName, keywords] of Object.entries(REGION_KEYWORDS)) {
         for (const keyword of keywords) {
-            if (normalizedNodeName.includes(keyword.toLowerCase())) {
-                return regionName;
+            const lowerKeyword = keyword.toLowerCase();
+
+            // 对于短关键词（2-3个字符的纯英文），要求匹配独立单词边界
+            // 避免 "kristi" 匹配 "kr"，"user" 匹配 "us" 等误匹配
+            if (lowerKeyword.length <= 3 && /^[a-z]+$/i.test(lowerKeyword)) {
+                // 使用更兼容的方式检查单词边界（不使用 lookbehind）
+                const idx = normalizedNodeName.indexOf(lowerKeyword);
+                if (idx !== -1) {
+                    // 检查前一个字符
+                    const charBefore = idx > 0 ? normalizedNodeName[idx - 1] : '';
+                    const isLetterBefore = charBefore && /[a-z]/i.test(charBefore);
+
+                    // 检查后一个字符
+                    const charAfter = normalizedNodeName[idx + lowerKeyword.length] || '';
+                    const isLetterAfter = charAfter && /[a-z]/i.test(charAfter);
+
+                    // 只有当前后都不是字母时才匹配
+                    if (!isLetterBefore && !isLetterAfter) {
+                        return regionName;
+                    }
+                }
+            } else {
+                // 对于长关键词或中文，直接使用 includes
+                if (normalizedNodeName.includes(lowerKeyword)) {
+                    return regionName;
+                }
             }
         }
     }
@@ -226,6 +304,9 @@ export function parseNodeInfo(nodeUrl) {
         nodeName = urlParts[0] || '未命名节点';
     }
 
+    // [修复] 将台湾旗帜替换为中国国旗
+    nodeName = nodeName.replace(/🇹🇼/g, '🇨🇳');
+
     // [新增] 提取服务器地址和端口
     let server = '';
     let port = '';
@@ -259,7 +340,7 @@ export function parseNodeInfo(nodeUrl) {
                         nodeName = config.ps;
                     }
                 } catch (e) {
-                    // console.error('VMess Base64 Decode Error:', e);
+                    console.debug('[GeoUtils] VMess base64 decode failed:', e);
                 }
             }
         } else if (protocol === 'ss') {
@@ -268,39 +349,26 @@ export function parseNodeInfo(nodeUrl) {
             let body = nodeUrl.substring(5); // remove ss://
             const hIndex = body.indexOf('#');
             if (hIndex !== -1) body = body.substring(0, hIndex);
+            const qIndex = body.indexOf('?');
+            if (qIndex !== -1) body = body.substring(0, qIndex);
 
-            // 检查是否有 @ 在明文部分 (非SIP002整体编码)
             const atLast = body.lastIndexOf('@');
-            if (atLast !== -1 && body.substring(0, atLast).includes(':') === false) {
-                // 可能是 ss://base64(method:pass)@host:port
-                // 但通常 base64 串也可能包含 / + =
-                const serverPart = body.substring(atLast + 1);
-                const hostPort = serverPart.split(':');
-                if (hostPort.length >= 2) {
-                    server = hostPort[0];
-                    port = hostPort[1].split('/')[0].split('?')[0];
-                }
+            let serverPart = '';
+            if (atLast !== -1) {
+                // 明文或 SIP002 (base64 userinfo)
+                serverPart = body.substring(atLast + 1);
             } else {
-                // 尝试整体解码 (SIP002)
-                try {
-                    // 处理 URL-safe Base64 字符
-                    let safeBody = body.replace(/-/g, '+').replace(/_/g, '/');
-                    // 补全 Padding
-                    while (safeBody.length % 4) {
-                        safeBody += '=';
-                    }
-                    const decoded = atob(safeBody); // user:pass@host:port
-                    const atIx = decoded.lastIndexOf('@');
-                    if (atIx !== -1) {
-                        const serverPart = decoded.substring(atIx + 1);
-                        const hostPort = serverPart.split(':');
-                        server = hostPort[0];
-                        port = hostPort[1].split('/')[0].split('?')[0];
-                    }
-                } catch (e) {
-                    // console.error('SS Base64 Decode Error:', e);
+                const decoded = tryDecodeBase64(body);
+                if (decoded && decoded.includes('@')) {
+                    serverPart = decoded.substring(decoded.lastIndexOf('@') + 1);
+                } else {
+                    serverPart = body;
                 }
             }
+
+            const parsed = parseHostPort(serverPart);
+            server = parsed.server;
+            port = parsed.port;
         } else {
             // 通用格式: protocol://user@host:port... 或 protocol://host:port...
             // vless, trojan, hysteria2, socks5, http 等
@@ -314,6 +382,30 @@ export function parseNodeInfo(nodeUrl) {
 
             const atIndex = body.lastIndexOf('@');
             let serverPart = (atIndex !== -1) ? body.substring(atIndex + 1) : body;
+
+            // [新增] 检测 Base64 编码的用户信息（某些非标准 VLESS URL）
+            // 格式：vless://Base64(auto:uuid@host:port)?params
+            if (atIndex === -1 && protocol === 'vless' && body.length > 20) {
+                try {
+                    // 尝试 Base64 解码
+                    let b64 = body.replace(/-/g, '+').replace(/_/g, '/');
+                    while (b64.length % 4) b64 += '=';
+                    const binaryString = atob(b64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const decoded = new TextDecoder('utf-8').decode(bytes);
+                    // 检查解码结果是否包含 @ 符号（形如 auto:uuid@host:port）
+                    if (decoded.includes('@')) {
+                        const decodedAtIndex = decoded.lastIndexOf('@');
+                        serverPart = decoded.substring(decodedAtIndex + 1);
+                    }
+                } catch (e) {
+                    // Base64 解码失败，继续使用原逻辑
+                    console.debug('[GeoUtils] VLESS base64 decode attempt failed (expected for standard format)');
+                }
+            }
 
             // 处理 IPv6 [::1]:port
             if (serverPart.startsWith('[')) {

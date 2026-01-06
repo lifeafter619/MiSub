@@ -15,6 +15,18 @@ const DEFAULT_SORT_KEYS = [
 
 const REGION_CODE_TO_ZH = buildRegionCodeToZhMap();
 const REGION_ZH_TO_CODE = buildZhToCodeMap();
+const warnedRegexRules = new Set();
+
+function warnInvalidRegex(rule, error) {
+    const key = `${rule.pattern || ''}|${rule.flags || ''}`;
+    if (warnedRegexRules.has(key)) return;
+    warnedRegexRules.add(key);
+    console.warn('[NodeTransform] Invalid rename regex:', {
+        pattern: rule.pattern,
+        flags: rule.flags,
+        error: error?.message || String(error)
+    });
+}
 
 // ============ 工具函数 ============
 
@@ -28,7 +40,11 @@ function normalizeBase64(input) {
     if (!s) return '';
     // 处理可能被 URL 编码的 Base64
     if (s.includes('%')) {
-        try { s = decodeURIComponent(s); } catch { /* ignore */ }
+        try {
+            s = decodeURIComponent(s);
+        } catch (error) {
+            console.debug('[NodeTransform] Failed to decode base64 segment:', error);
+        }
     }
     s = s.replace(/-/g, '+').replace(/_/g, '/');
     while (s.length % 4 !== 0) s += '=';
@@ -164,7 +180,9 @@ function extractServerPort(url, protocol) {
                 return { server: parsed.hostname, port: parsed.port || '' };
             }
         }
-    } catch { }
+    } catch (error) {
+        console.debug('[NodeTransform] URL parse failed, falling back to manual parsing:', error);
+    }
 
     try {
         const main = url.split('#')[0];
@@ -176,7 +194,19 @@ function extractServerPort(url, protocol) {
             try {
                 const decoded = base64Decode(rest);
                 if (decoded.includes('@')) rest = decoded;
-            } catch { }
+            } catch (error) {
+                console.debug('[NodeTransform] SS base64 decode failed, using raw host segment:', error);
+            }
+        }
+
+        // [新增] 处理 VLESS Base64 编码格式：vless://Base64(auto:uuid@host:port)?...
+        if (proto === 'vless' && !rest.includes('@') && rest.length > 20) {
+            try {
+                const decoded = base64Decode(rest);
+                if (decoded.includes('@')) rest = decoded;
+            } catch (error) {
+                console.debug('[NodeTransform] VLESS base64 decode failed (expected for standard format)');
+            }
         }
 
         const at = rest.lastIndexOf('@');
@@ -188,6 +218,17 @@ function getNodeName(url, protocol) {
     const proto = normalizeProtocol(protocol || getProtocol(url));
     const fragmentName = getFragment(url);
     if (fragmentName) return fragmentName;
+
+    // [修复] 如果 fragment 为空，尝试从 URL 查询参数中提取名称
+    // 支持 remarks, des, remark 等常见参数（部分订阅源使用）
+    const remarksMatch = String(url || '').match(/[?&](remarks|des|remark)=([^&#]+)/i);
+    if (remarksMatch && remarksMatch[2]) {
+        try {
+            return decodeURIComponent(remarksMatch[2]).trim();
+        } catch {
+            return remarksMatch[2].trim();
+        }
+    }
 
     if (proto === 'vmess') {
         try {
@@ -312,7 +353,9 @@ function applyRegexRename(name, rules) {
         try {
             const re = new RegExp(rule.pattern, rule.flags || 'g');
             result = result.replace(re, rule.replacement || '');
-        } catch { }
+        } catch (error) {
+            warnInvalidRegex(rule, error);
+        }
     }
     return result.trim();
 }
@@ -520,7 +563,9 @@ export function applyNodeTransformPipeline(nodeUrls, transformConfig = {}) {
     // 解析为结构化记录（延迟计算 region/emoji）
     let records = input.map(url => {
         const protocol = normalizeProtocol(getProtocol(url));
-        const name = getNodeName(url, protocol);
+        let name = getNodeName(url, protocol);
+        // [修复] 将台湾旗帜替换为中国国旗
+        name = name.replace(/🇹🇼/g, '🇨🇳');
         const { server, port } = needServerPort ? extractServerPort(url, protocol) : { server: '', port: '' };
         return { url, protocol, name, originalName: name, region: '', emoji: '', server, port };
     });
