@@ -103,6 +103,13 @@ export async function handleMisubsSave(request, env) {
             } else {
                 finalProfiles = currentProfiles; // 无变动
             }
+
+            if (!Array.isArray(finalMisubs) || !Array.isArray(finalProfiles)) {
+                return createJsonResponse({
+                    success: false,
+                    message: '增量更新结果格式错误，请检查补丁数据'
+                }, 400);
+            }
         } else {
             // 步骤2: 验证必需字段 (仅在非Diff模式下)
             if (typeof misubs === 'undefined' || typeof profiles === 'undefined') {
@@ -264,8 +271,8 @@ export async function handlePublicProfilesRequest(env) {
 
         // Hero Configuration
         const hero = {
-            title1: settings.heroTitle1 || '发现优质',
-            title2: settings.heroTitle2 || '订阅资源',
+            title1: settings.heroTitle1 || '发现',
+            title2: settings.heroTitle2 || '优质订阅',
             description: settings.heroDescription || '浏览并获取由管理员分享的精选订阅组合，一键导入到您的客户端。'
         };
 

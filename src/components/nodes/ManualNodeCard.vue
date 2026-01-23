@@ -73,10 +73,10 @@ const colorTagClass = computed(() => {
 
 <template>
   <div 
-    class="group bg-white/90 dark:bg-gray-900/80 backdrop-blur-md rounded-xl card-shadow hover:card-shadow-hover p-3 smooth-all hover:-translate-y-0.5 relative flex items-center justify-between gap-3"
+    class="group glass-panel p-3 card-hover relative flex items-center justify-between gap-3 transition-all duration-300 hover:shadow-lg hover:shadow-primary-500/10 min-h-[60px]"
     :class="{ 
-        'opacity-50': !node.enabled && !isSelectionMode,
-        'ring-2 ring-indigo-500': isSelectionMode && isSelected,
+        'opacity-50 grayscale': !node.enabled && !isSelectionMode,
+        'ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/10': isSelectionMode && isSelected,
         'cursor-pointer': isSelectionMode
     }"
     @click="isSelectionMode ? emit('toggle-select') : null"
@@ -84,7 +84,7 @@ const colorTagClass = computed(() => {
     <!-- Selection Checkbox -->
     <div v-if="isSelectionMode" class="shrink-0 mr-1">
         <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors"
-             :class="isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-gray-300 dark:border-gray-600'">
+             :class="isSelected ? 'bg-primary-500 border-primary-500' : 'border-gray-300 dark:border-gray-600'">
             <svg v-if="isSelected" xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-white" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
         </div>
     </div>
@@ -104,7 +104,7 @@ const colorTagClass = computed(() => {
       </p>
     </div>
 
-    <div v-if="!isSelectionMode" class="shrink-0 flex items-center gap-1 lg:opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+    <div v-if="!isSelectionMode" class="shrink-0 flex items-center gap-1 xl:opacity-0 group-hover:opacity-100 transition-opacity duration-200">
         <button @click.stop="emit('edit')" class="p-1.5 rounded-full hover:bg-gray-500/10 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200" title="编辑节点">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.536L16.732 3.732z" /></svg>
         </button>
