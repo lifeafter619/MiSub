@@ -73,12 +73,8 @@ const submitLogin = async () => {
             type="password"
             placeholder="Access Token"
             :disabled="isLoading"
-            class="w-full bg-transparent border rounded-xl py-3.5 pl-11 pr-4 outline-none transition-all duration-300 disabled:opacity-50"
-            :class="[
-              error 
-                ? 'border-red-500 text-red-500 placeholder-red-300 focus:border-red-500 focus:ring-1 focus:ring-red-500/50' 
-                : 'border-gray-200 dark:border-white/20 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:border-primary-500 dark:focus:border-primary-400 focus:ring-1 focus:ring-primary-500/50 dark:focus:ring-primary-400/50'
-            ]"
+            aria-label="访问口令"
+            class="w-full bg-transparent border border-gray-200 dark:border-white/20 rounded-xl py-3.5 pl-11 pr-4 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:border-primary-500 dark:focus:border-primary-400 focus:ring-1 focus:ring-primary-500/50 dark:focus:ring-primary-400/50 outline-none transition-all duration-300 disabled:opacity-50"
           />
           <!-- Error Message with Animation -->
           <transition name="fade">
@@ -112,25 +108,3 @@ const submitLogin = async () => {
     </div>
   </div>
 </template>
-
-<style scoped>
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
-}
-
-.animate-shake {
-  animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>

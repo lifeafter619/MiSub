@@ -35,11 +35,19 @@ const ICONS = {
   <div
     class="group relative h-full flex flex-col bg-white dark:bg-[#1a1d29] border border-gray-100 dark:border-white/5 rounded-3xl p-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/5 hover:border-primary-500/30 hover:-translate-y-1"
   >
-    <!-- Header: Icon & Title -->
-    <div class="flex items-start justify-between mb-4">
-      <div class="flex items-center gap-4">
-        <div
-          class="h-12 w-12 rounded-2xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/5 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform duration-300"
+    <!-- Top Right Buttons: Quick Import & QR Code -->
+    <div class="absolute top-5 right-5 flex gap-2">
+      <!-- Quick Import Button -->
+      <button
+        type="button"
+        @click="emit('quick-import', profile)"
+        class="w-10 h-10 flex items-center justify-center rounded-xl bg-primary-50 dark:bg-primary-500/10 border border-primary-100 dark:border-primary-500/20 text-primary-600 dark:text-primary-400 hover:bg-primary-100 dark:hover:bg-primary-500/30 transition-all hover:scale-110 group/import focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50"
+        title="一键导入"
+        aria-label="一键导入"
+      >
+        <BaseIcon :path="ICONS.import" className="w-5 h-5" />
+        <span
+          class="absolute -bottom-8 right-0 px-2 py-1 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded opacity-0 group-hover/import:opacity-100 transition-opacity whitespace-nowrap pointer-events-none"
         >
           <span class="text-2xl drop-shadow-sm">🚀</span>
         </div>
@@ -53,10 +61,12 @@ const ICONS = {
       
       <!-- QR Toggle (Small Top Right) -->
       <button
-        @click.stop="emit('toggle-qr', profile)"
-        class="p-2 rounded-xl text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-colors"
-        title="显示二维码"
-        :class="{ 'bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400': isQrExpanded }"
+        type="button"
+        @click="emit('toggle-qr', profile)"
+        class="w-10 h-10 flex items-center justify-center rounded-xl bg-teal-50 dark:bg-teal-500/10 border border-teal-100 dark:border-teal-500/20 text-teal-600 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-500/30 transition-all hover:scale-110 group/qr focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/50"
+        :class="{ 'bg-teal-100 dark:bg-teal-500/30': isQrExpanded }"
+        title="查看二维码"
+        :aria-label="isQrExpanded ? '收起二维码' : '查看二维码'"
       >
         <BaseIcon :path="ICONS.qr" className="w-5 h-5" />
       </button>
@@ -89,13 +99,25 @@ const ICONS = {
           <BaseIcon :path="ICONS.preview" className="w-5 h-5" />
         </button>
 
-        <button
-          @click="emit('copy-link', profile)"
-          class="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
-          title="复制链接"
-        >
-          <BaseIcon :path="ICONS.link" className="w-5 h-5" />
-        </button>
+    <div class="grid grid-cols-2 gap-3">
+      <button
+        type="button"
+        @click="emit('preview', profile)"
+        class="flex items-center justify-center px-4 py-3 border border-primary-200 dark:border-primary-500/30 text-sm font-bold rounded-xl text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-500/10 hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50"
+        aria-label="预览节点"
+      >
+        <BaseIcon :path="ICONS.preview" className="w-5 h-5 mr-1.5" />
+        预览节点
+      </button>
+      <button
+        type="button"
+        @click="emit('copy-link', profile)"
+        class="flex items-center justify-center px-4 py-3 border border-transparent text-sm font-bold rounded-xl text-white bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-500 hover:to-indigo-500 shadow-lg shadow-primary-500/30 transition-all hover:-translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50"
+        aria-label="复制链接"
+      >
+        <BaseIcon :path="ICONS.link" className="w-5 h-5 mr-1.5" />
+        复制链接
+      </button>
     </div>
 
     <QRCodeOverlay
