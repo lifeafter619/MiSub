@@ -481,3 +481,4 @@ http://<vps-ip>:8080
 Made with ❤️ by AI
 
 </div>
+[MIT](https://www.google.com/search?q=./LICENSE\&authuser=2)
