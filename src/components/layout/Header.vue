@@ -4,7 +4,7 @@ import { useSessionStore } from '../../stores/session.js';
 import { useThemeStore } from '../../stores/theme.js';
 import { useUIStore } from '../../stores/ui.js';
 import ThemeToggle from '../features/ThemeToggle.vue';
-import PWAInstallPrompt from '../features/PWAInstallPrompt.vue';
+
 
 const { theme, toggleTheme } = useThemeStore();
 const uiStore = useUIStore();
@@ -41,22 +41,21 @@ const emit = defineEmits(['logout']);
       <div class="pt-safe-top">
         <div class="flex justify-between items-center h-16 md:h-20">
         <div class="flex items-center">
-          <svg width="32" height="32" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" class="text-primary-600 dark:text-primary-400">
-            <path fill="currentColor" d="M64 128a64 64 0 1 1 64-64a64.07 64.07 0 0 1-64 64Zm0-122a58 58 0 1 0 58 58A58.07 58.07 0 0 0 64 6Z"/>
-            <path fill="currentColor" d="M64 100a36 36 0 1 1 36-36a36 36 0 0 1-36 36Zm0-66a30 30 0 1 0 30 30a30 30 0 0 0-30-30Z"/>
-            <path fill="currentColor" d="M64 78a14 14 0 1 1 14-14a14 14 0 0 1-14 14Zm0-22a8 8 0 1 0 8 8a8 8 0 0 0-8-8Z"/>
-          </svg>
-          <span class="ml-3 text-xl font-bold text-gray-800 dark:text-white">MISUB</span>
+          <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 mr-2">
+             <svg width="20" height="20" viewBox="0 0 128 128" fill="currentColor">
+                <path d="M64 128a64 64 0 1 1 64-64a64.07 64.07 0 0 1-64 64Zm0-122a58 58 0 1 0 58 58A58.07 58.07 0 0 0 64 6Z"/>
+                <path d="M64 100a36 36 0 1 1 36-36a36 36 0 0 1-36 36Zm0-66a30 30 0 1 0 30 30a30 30 0 0 0-30-30Z"/>
+             </svg>
+          </div>
+          <span class="text-lg font-bold font-display tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
+            MiSub
+          </span>
         </div>
         
         <div class="flex items-center space-x-2 sm:space-x-3">
             <ThemeToggle :theme="theme" @toggle="toggleTheme" />
 
             <div v-if="isLoggedIn" class="flex items-center space-x-2 sm:space-x-3">
-              <!-- PWA安装按钮 -->
-              <div class="flex-shrink-0">
-                <PWAInstallPrompt />
-              </div>
               
               <button
                 type="button"

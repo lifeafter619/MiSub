@@ -119,7 +119,10 @@ const handleDiscard = async () => {
 
     <main 
       class="grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6"
-      :class="{ 'flex items-center justify-center': shouldCenterMain }"
+      :class="{ 
+        'flex items-center justify-center': shouldCenterMain,
+        'ios-header-padding': showLegacyHeader 
+      }"
     >
       <div v-if="sessionState === 'loading'" class="flex justify-center p-8">
         <LoadingSpinner type="spinner" size="md" color="indigo" message="正在加载..." />
@@ -223,4 +226,11 @@ const handleDiscard = async () => {
 }
 .slide-fade-enter-active, .slide-fade-leave-active { transition: all 0.3s ease; }
 .slide-fade-enter-from, .slide-fade-leave-to { transform: translateY(-10px); opacity: 0; }
+
+/* iOS Specific Padding for Fixed Header */
+@supports (-webkit-touch-callout: none) {
+  .ios-header-padding {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 80px) !important;
+  }
+}
 </style>
