@@ -84,6 +84,7 @@ onUnmounted(() => {
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">2. 选择格式</label>
         <div class="grid grid-cols-3 gap-2">
             <button
+              type="button"
               v-for="(format, index) in formats"
               :key="format"
               @click="selectedFormat = format"
@@ -95,6 +96,7 @@ onUnmounted(() => {
                   ? 'bg-primary-600 text-white border-primary-600 shadow-sm shadow-primary-500/30'
                   : 'bg-white/70 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border-gray-200/70 dark:border-white/10 hover:bg-white dark:hover:bg-gray-800'
               ]"
+              :aria-pressed="selectedFormat === format"
             >
               {{ format }}
             </button>

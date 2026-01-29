@@ -93,6 +93,7 @@ const navItems = [
           v-for="item in navItems" 
           :key="item.path" 
           :to="item.path"
+          :aria-current="route.path === item.path ? 'page' : undefined"
           class="relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 group"
           :class="[
             route.path === item.path 
@@ -141,6 +142,7 @@ const navItems = [
             v-for="item in navItems" 
             :key="item.path" 
             :to="item.path"
+            :aria-current="route.path === item.path ? 'page' : undefined"
             class="flex flex-col items-center justify-center w-full h-full gap-1 rounded-xl transition-all duration-300 tap-effect"
             :class="route.path === item.path ? 'text-primary-600 dark:text-primary-400' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'"
           >

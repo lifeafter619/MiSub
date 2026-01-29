@@ -94,6 +94,7 @@ import Switch from '../../ui/Switch.vue';
                 { value: 120, label: '2小时' }
               ]"
               :key="option.value"
+              type="button"
               @click="settings.autoUpdateInterval = option.value"
               :aria-pressed="settings.autoUpdateInterval === option.value"
               :class="[
@@ -102,6 +103,7 @@ import Switch from '../../ui/Switch.vue';
                   ? 'bg-primary-600 text-white border-primary-600 shadow-sm shadow-primary-500/30'
                   : 'bg-white/70 dark:bg-gray-800/60 text-gray-700 dark:text-gray-300 border-gray-200/70 dark:border-white/10 hover:bg-white dark:hover:bg-gray-800'
               ]"
+              :aria-pressed="settings.autoUpdateInterval === option.value"
             >
               {{ option.label }}
             </button>
