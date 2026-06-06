@@ -11,7 +11,11 @@ import { useManualNodes } from '../../composables/useManualNodes.js';
 const props = defineProps({
   show: Boolean,
   isNew: Boolean,
-  editingNode: Object
+  editingNode: Object,
+  groups: {
+    type: Array,
+    default: () => []
+  }
 });
 
 const emit = defineEmits(['update:show', 'confirm', 'input-url']);
@@ -19,7 +23,7 @@ const dataStore = useDataStore();
 const { markDirty } = dataStore;
 
 const { addSubscriptionsFromBulk } = useSubscriptions(markDirty);
-const { addNodesFromBulk, manualNodeGroups } = useManualNodes(markDirty);
+const { addNodesFromBulk } = useManualNodes(markDirty);
 const { handleBulkImport } = useBulkImportLogic({ addSubscriptionsFromBulk, addNodesFromBulk });
 
 // 浮动标签状态
@@ -162,6 +166,7 @@ const protocolColorMap = {
           <h3 class="text-lg font-bold text-gray-800 dark:text-white">
             {{ isNew ? '新增手动节点' : '编辑手动节点' }}
           </h3>
+          <p v-if="!(isNew && isMultiLine)" class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">支持单条编辑，也支持多行粘贴后批量导入节点。</p>
           <p v-if="isNew && isMultiLine" class="text-sm text-indigo-500 mt-0.5 font-medium flex items-center gap-1">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd" />
@@ -173,9 +178,9 @@ const protocolColorMap = {
     </template>
     
     <template #body>
-      <div class="space-y-5">
+      <div class="space-y-6">
         <!-- 名称和颜色标签 - 两栏布局 -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <!-- 节点名称 -->
           <div class="relative">
              <div class="flex flex-col">
@@ -220,7 +225,7 @@ const protocolColorMap = {
               </label>
               <GroupSelector
                 v-model="editingNode.group"
-                :groups="manualNodeGroups"
+                :groups="groups"
                 placeholder="选择或输入新分组..."
               />
             </div>

@@ -78,48 +78,68 @@ export function useSubscriptions(markDirty) {
     }, TIMING.REQUEST_TIMEOUT_MS);
 
     try {
-      const result = await fetchNodeCount(subToUpdate.url, subToUpdate.fetchProxy, Boolean(subToUpdate.plusAsSpace));
+      const result = await fetchNodeCount(
+        subToUpdate.url,
+        subToUpdate.fetchProxy,
+        Boolean(subToUpdate.plusAsSpace),
+        subToUpdate.customUserAgent
+      );
 
       // 清除超时保护
       clearTimeout(timeoutId);
 
-      // 检查是否成功
-      if (!result.success) {
-        let userMessage = `${subToUpdate.name || '订阅'} 更新失败`;
+                // 检查是否成功
+                if (!result.success) {
+                    let userMessage = `${subToUpdate.name || '订阅'} 更新失败`;
 
-        // 根据 errorType 提供更友好的错误提示
-        switch (result.errorType) {
-          case 'timeout':
-            userMessage = `${subToUpdate.name || '订阅'} 更新超时,请稍后重试`;
-            break;
-          case 'network':
-            userMessage = `${subToUpdate.name || '订阅'} 网络连接失败`;
-            break;
-          case 'server':
-            userMessage = `${subToUpdate.name || '订阅'} 服务器错误`;
-            break;
-          default:
-            userMessage = `${subToUpdate.name || '订阅'} 更新失败: ${result.error}`;
-        }
+                    // 根据 errorType 提供更友好的错误提示
+                    switch (result.errorType) {
+                        case 'timeout':
+                            userMessage = `${subToUpdate.name || '订阅'} 更新超时,请稍后重试`;
+                            break;
+                        case 'network':
+                            userMessage = `${subToUpdate.name || '订阅'} 网络连接失败`;
+                            break;
+                        case 'server':
+                            userMessage = `${subToUpdate.name || '订阅'} 服务器错误`;
+                            break;
+                        default:
+                            userMessage = `${subToUpdate.name || '订阅'} 更新失败: ${result.error || '未知错误'}`;
+                    }
 
-        if (!isInitialLoad) showToast(userMessage, 'error');
-        console.error(`[handleUpdateNodeCount] Failed for ${subToUpdate.name}:`, result.error);
+                    if (result.errorType === 'server' && (result.error || result.status)) {
+                        userMessage = `${subToUpdate.name || '订阅'} 更新失败: ${result.error || `HTTP ${result.status}`}`;
+                    }
 
-        // 失败时不调用 markDirty(),避免误导用户
-      } else {
-        // 成功获取数据
-        const data = result.data;
-        // Direct mutation works because subToUpdate is a reactive object from the store
-        subToUpdate.nodeCount = data.count || 0;
-        subToUpdate.userInfo = data.userInfo || null;
+                    // 只有非静默加载时才显示 Toast
+                    if (!isInitialLoad) showToast(userMessage, 'error');
+                    console.error(`[handleUpdateNodeCount] Failed for ${subToUpdate.name}:`, result.error);
 
-        if (!isInitialLoad) {
-          showToast(`${subToUpdate.name || '订阅'} 更新成功！`, 'success');
-          markDirty();
-          // 自动保存手动更新的结果
-          void dataStore.saveData();
-        }
-      }
+                    // 重要: 记录错误到本地对象中(非持久化,仅用于UI展示,直到下次持久化保存)
+                    subToUpdate.lastError = result.error;
+                    if (subToUpdate.enableNodeCache !== true) {
+                        subToUpdate.nodeCount = 0;
+                        subToUpdate.userInfo = null;
+                        if (!isInitialLoad) {
+                            markDirty();
+                            void dataStore.saveData();
+                        }
+                    }
+                    return; // 开启保护性缓存节点时，失败保留旧值
+                }
+
+                // 成功获取数据
+                const data = result.data.data || result.data; // 兼容后端返回结构
+                subToUpdate.nodeCount = data.count || 0;
+                subToUpdate.userInfo = data.userInfo || null;
+                subToUpdate.lastError = null; // 成功后清除错误状态
+
+                if (!isInitialLoad) {
+                    showToast(`${subToUpdate.name || '订阅'} 更新成功！`, 'success');
+                    markDirty();
+                    // 自动保存手动更新的结果
+                    void dataStore.saveData();
+                }
     } catch (error) {
       // 清除超时保护
       clearTimeout(timeoutId);

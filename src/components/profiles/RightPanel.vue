@@ -6,6 +6,10 @@ import { useUIStore } from '../../stores/ui.js';
 const props = defineProps({
   config: Object,
   profiles: Array,
+  compact: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(['qrcode']);
@@ -18,10 +22,45 @@ let copyTimeout = null;
 
 const formats = ['通用格式', 'Base64', 'Clash', 'Sing-Box', 'Surge', 'Loon'];
 const selectedFormat = ref('通用格式');
-const selectedId = ref('default'); 
+const selectedId = ref('default');
+
+const hasProfiles = computed(() => (props.profiles || []).length > 0);
+const mainTokenReady = computed(() => Boolean(props.config?.mytoken && props.config.mytoken !== 'auto'));
+const profileTokenReady = computed(() => Boolean(props.config?.profileToken && props.config.profileToken !== 'auto'));
+
+const setupTasks = computed(() => {
+  const tasks = [];
+  if (!mainTokenReady.value) {
+    tasks.push({
+      id: 'main-token',
+      title: '固定主 Token',
+      description: '默认订阅链接依赖主 Token，固定后客户端链接不会随自动值变化。',
+      to: '/dashboard/settings?focus=mytoken'
+    });
+  }
+  if (!hasProfiles.value) {
+    tasks.push({
+      id: 'profile',
+      title: '创建组合订阅',
+      description: '组合订阅可按用途输出不同客户端链接，便于分享和长期维护。',
+      to: '/dashboard/subscriptions?focus=profiles'
+    });
+  }
+  if (hasProfiles.value && !profileTokenReady.value) {
+    tasks.push({
+      id: 'profile-token',
+      title: '固定分享 Token',
+      description: '选择组合订阅时需要分享 Token，固定后 Profile 链接才稳定。',
+      to: '/dashboard/settings?focus=profileToken'
+    });
+  }
+  return tasks;
+});
+
+const hasSetupTasks = computed(() => setupTasks.value.length > 0);
 
 const requiredToken = computed(() => {
-  return selectedId.value === 'default' 
+  return selectedId.value === 'default'
     ? { type: 'mytoken', value: props.config?.mytoken, name: '主 Token' }
     : { type: 'profileToken', value: props.config?.profileToken, name: '分享 Token' };
 });
@@ -69,10 +108,25 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <div class="bg-white/90 dark:bg-gray-900/80 backdrop-blur-md p-6 misub-radius-lg border border-gray-100/80 dark:border-white/10 shadow-sm transition-all duration-300">
-      <h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4 list-item-animation" style="--delay-index: 0">生成订阅链接</h3>
+    <div class="bg-white/90 dark:bg-gray-900/80 backdrop-blur-md misub-radius-lg border border-gray-100/80 dark:border-white/10 shadow-sm transition-all duration-300" :class="compact ? 'p-4' : 'p-6'">
+      <h3 class="font-bold text-gray-900 dark:text-white mb-4 list-item-animation" :class="compact ? 'text-base' : 'text-lg'" style="--delay-index: 0">生成订阅链接</h3>
 
-      <div class="mb-4 list-item-animation" style="--delay-index: 1">
+      <div v-if="hasSetupTasks" class="mb-4 rounded-[var(--misub-radius-md)] border border-amber-200/80 bg-amber-50/80 p-3 text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200 list-item-animation" style="--delay-index: 1">
+        <p class="text-sm font-semibold">链接生成前还差几步</p>
+        <div class="mt-2 grid gap-2">
+          <router-link
+            v-for="task in setupTasks"
+            :key="task.id"
+            :to="task.to"
+            class="block rounded-[var(--misub-radius-sm)] border border-current/15 bg-white/50 px-3 py-2 text-xs hover:bg-white/80 dark:bg-white/10 dark:hover:bg-white/15 transition-colors"
+          >
+            <span class="block font-semibold">{{ task.title }}</span>
+            <span class="mt-0.5 block opacity-80">{{ task.description }}</span>
+          </router-link>
+        </div>
+      </div>
+
+      <div class="mb-4 list-item-animation" style="--delay-index: 2">
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">1. 选择订阅内容</label>
         <select v-model="selectedId" class="w-full px-3 py-2.5 bg-white/80 dark:bg-gray-800/70 border border-gray-200/80 dark:border-white/10 misub-radius-lg shadow-sm focus:outline-hidden focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500 text-sm text-gray-900 dark:text-white input-enhanced">
             <option value="default">默认订阅 (全部启用节点)</option>
@@ -82,15 +136,15 @@ onUnmounted(() => {
         </select>
       </div>
 
-      <div class="mb-5 list-item-animation" style="--delay-index: 2">
+      <div class="mb-5 list-item-animation" style="--delay-index: 3">
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">2. 选择格式</label>
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid gap-2" :class="compact ? 'grid-cols-2' : 'grid-cols-3'">
             <button
               v-for="(format, index) in formats"
               :key="format"
               @click="selectedFormat = format"
               :aria-pressed="selectedFormat === format"
-              class="px-3 py-2 text-xs font-medium misub-radius-lg border transition-colors flex justify-center items-center list-item-animation"
+              class="min-h-11 px-3 py-2.5 text-xs font-medium misub-radius-lg border transition-colors flex justify-center items-center text-center list-item-animation"
               :style="{ '--delay-index': index }"
               :class="[
                 selectedFormat === format
@@ -103,13 +157,13 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="relative list-item-animation" style="--delay-index: 3">
+      <div class="relative list-item-animation" style="--delay-index: 4">
         <input
           type="text"
           :value="subLink"
           readonly
           :disabled="!isLinkValid"
-          class="w-full text-sm text-gray-600 dark:text-gray-300 bg-gray-100/80 dark:bg-gray-800/60 misub-radius-lg pl-3 pr-20 py-2.5 border border-gray-200/70 dark:border-white/10 focus:outline-hidden focus:ring-2 font-mono input-enhanced"
+          class="w-full min-h-12 text-sm text-gray-600 dark:text-gray-300 bg-gray-100/80 dark:bg-gray-800/60 misub-radius-lg pl-3 pr-24 py-3 border border-gray-200/70 dark:border-white/10 focus:outline-hidden focus:ring-2 font-mono input-enhanced"
           :class="{
             'focus:ring-primary-500': isLinkValid,
             'focus:ring-red-500 cursor-not-allowed': !isLinkValid,
@@ -117,13 +171,13 @@ onUnmounted(() => {
           }"
         />
         <div class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-          <button @click="$emit('qrcode', subLink, '订阅链接')" :disabled="!isLinkValid" class="flex h-9 w-9 items-center justify-center misub-radius-md text-gray-400 transition-colors duration-200" :class="isLinkValid ? 'hover:text-primary-600 hover:bg-white/80 dark:hover:bg-gray-800' : 'cursor-not-allowed'" title="显示二维码">
+          <button @click="$emit('qrcode', subLink, '订阅链接')" :disabled="!isLinkValid" class="flex h-11 w-11 items-center justify-center misub-radius-md text-gray-400 transition-colors duration-200" :class="isLinkValid ? 'hover:text-primary-600 hover:bg-white/80 dark:hover:bg-gray-800' : 'cursor-not-allowed'" title="显示二维码">
              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" />
                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" />
              </svg>
           </button>
-          <button @click="copyToClipboard" :disabled="!isLinkValid" class="flex h-9 w-9 items-center justify-center misub-radius-md text-gray-400 transition-colors duration-200" :class="isLinkValid ? 'hover:text-primary-600 hover:bg-white/80 dark:hover:bg-gray-800' : 'cursor-not-allowed'" title="复制链接">
+          <button @click="copyToClipboard" :disabled="!isLinkValid" class="flex h-11 w-11 items-center justify-center misub-radius-md text-gray-400 transition-colors duration-200" :class="isLinkValid ? 'hover:text-primary-600 hover:bg-white/80 dark:hover:bg-gray-800' : 'cursor-not-allowed'" title="复制链接">
              <Transition name="fade" mode="out-in">
                  <svg v-if="copied" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -136,13 +190,13 @@ onUnmounted(() => {
         </div>
       </div>
 
-       <p v-if="!isLinkValid || requiredToken.value.value === 'auto'" class="text-xs text-yellow-600 dark:text-yellow-500 mt-2 list-item-animation" style="--delay-index: 4">
+       <p v-if="!isLinkValid || requiredToken.value === 'auto'" class="text-xs text-yellow-600 dark:text-yellow-500 mt-2 list-item-animation" style="--delay-index: 5">
            提示：
-           <span v-if="!isLinkValid">请在              <router-link to="/settings" class="font-bold underline hover:text-yellow-400">设置</router-link> 
+           <span v-if="!isLinkValid">请在 <router-link to="/dashboard/settings" class="font-bold underline hover:text-yellow-400">设置</router-link>
              中配置一个固定的 {{ requiredToken.name }}。
            </span>
            <span v-else-if="requiredToken.type === 'mytoken' && requiredToken.value === 'auto'">
-             当前为自动Token，链接可能会变化。为确保链接稳定，推荐在 "设置" 中配置一个固定Token。
+             当前为自动 Token，链接可能会变化。为确保链接稳定，推荐在“设置”中配置一个固定 Token。
            </span>
        </p>
     </div>
